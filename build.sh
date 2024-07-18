@@ -3,6 +3,8 @@
 echo "How do you want to access Pi zero"
 echo "1:build  | 2: Transfer .ko"
 echo "Insert number here: "
+
+#TODO: modify depends on your board
 BOARD_ADDR=pi@raspberrypi0.local
 
 read MY_OPTION
