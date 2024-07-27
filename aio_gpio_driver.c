@@ -10,7 +10,18 @@
 #define DRIVER_NAME "aio_gpio_driver"
 #define MAX_BUF_SIZE (u8)80
 
+#define GPIO_IOC_MAGIC 'G'
+// #define GPIO_IOC_SET_DIRECTION _IOW(GPIO_IOC_MAGIC, 0, int)
+#define GPIO_IOC_GET_VALUE _IOR(GPIO_IOC_MAGIC, 1, int)
+#define GPIO_IOC_SET_VALUE _IOW(GPIO_IOC_MAGIC, 2, int)
+
 static bool first;
+
+struct gpio_data 
+{
+    int gpio;
+    int value;
+};
 
 int misc_open(struct inode *node, struct file *filep)
 {
@@ -35,68 +46,7 @@ int misc_release(struct inode *node, struct file *filep)
 static ssize_t misc_read(struct file *filp, char __user *buf, size_t length,
                          loff_t *f_pos)
 {
-    // u16 gpio_num = 0;
-    // u16 value = 0;
-    // char cmd[MAX_BUF_SIZE] = {0};
-    // char msg[MAX_BUF_SIZE] = {0};
     size_t len=0;
-
-    // pr_info("aio_gpio_driver: start to read GPIO\n");
-    
-    // // Only allow reading once
-    // if(*f_pos > 0)
-    // {
-    //     return 0;
-    // }
-
-    // /*get cmd from user space*/
-    // pr_info("aio_gpio_driver: get cmd from user space\n");
-    // if(copy_from_user(cmd, buf, length) != 0)
-    // {
-    //     return -EFAULT;
-    // }
-
-    // // Parse the GPIO pin number from cmd
-    // pr_info("aio_gpio_driver: Parse the GPIO pin number from cmd\n");
-    // sscanf(cmd, "%hd", &gpio_num);
-
-    // pr_info("aio_gpio_driver: will read from GPIO%d\n", gpio_num);
-
-    // gpio_num += BASE_GPIOCHIP;
-
-    // // Check if the GPIO is valid and exported
-    // if(!gpio_is_valid(gpio_num))
-    // {
-    //     return -EINVAL;
-    // }
-
-    // if(gpio_request(gpio_num, DRIVER_NAME)) 
-    // {
-    //     pr_info("aio_gpio_driver: GPIO %d request failed\n", gpio_num);
-    //     return -EBUSY;
-    // }
-
-    // // Read the value of the GPIO pin
-    // value = gpio_get_value(gpio_num);
-
-    // gpio_num -= BASE_GPIOCHIP;
-
-    // // Prepare the message to be sent to the user space
-    // len = snprintf(msg, MAX_BUF_SIZE, "GPIO%d value is %d\n", gpio_num, value);
-
-    // // Copy the message to the user space
-    // if(copy_to_user(buf, msg, min(len, length)))
-    // {
-    //     gpio_free(gpio_num + BASE_GPIOCHIP);
-    //     return -EFAULT;
-    // }
-
-    // // Free the GPIO pin
-    // gpio_free(gpio_num + BASE_GPIOCHIP);
-
-    // // Update the file position
-    // *f_pos += len;
-
     return len;
 }
 
@@ -205,7 +155,91 @@ static ssize_t misc_write(struct file *filp, const char __user *buf,
 
 static long misc_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
-	return 0;
+    struct gpio_data gpio_info;
+    int ret = 0;
+    int gpio_num;
+    int value;
+
+    switch(cmd) 
+    {
+#ifdef GPIO_IOC_SET_DIRECTION
+        // TODO: merge set direction into write and read
+        case GPIO_IOC_SET_DIRECTION:
+            if (copy_from_user(&gpio_info, (struct gpio_data __user *)arg, sizeof(gpio_info)))
+                return -EFAULT;
+
+            gpio_num = gpio_info.gpio + BASE_GPIOCHIP;
+
+            if (!gpio_is_valid(gpio_num))
+                return -EINVAL;
+
+            if (gpio_request(gpio_num, DRIVER_NAME))
+                return -EBUSY;
+
+            if (gpio_info.value == 1) 
+            {
+                gpio_direction_output(gpio_num, 0);
+            } 
+            else 
+            {
+                gpio_direction_input(gpio_num);
+            }
+            gpio_free(gpio_num);
+            break;
+#endif /*GPIO_IOC_SET_DIRECTION*/
+
+        case GPIO_IOC_GET_VALUE:
+            if (copy_from_user(&gpio_info, (struct gpio_data __user *)arg, sizeof(gpio_info)))
+                return -EFAULT;
+
+            gpio_num = gpio_info.gpio + BASE_GPIOCHIP;
+
+            /*check GPIO if valid*/
+            if (!gpio_is_valid(gpio_num))
+                return -EINVAL;
+
+            if (gpio_request(gpio_num, DRIVER_NAME))
+                return -EBUSY;
+
+            /*set GPIO direction*/
+            gpio_direction_input(gpio_num);
+
+            value = gpio_get_value(gpio_num);
+            gpio_info.value = value;
+            gpio_free(gpio_num);
+
+            if (copy_to_user((struct gpio_data __user *)arg, &gpio_info, sizeof(gpio_info)))
+                return -EFAULT;
+            break;
+        case GPIO_IOC_SET_VALUE: /*TODO test this gpio write*/
+            if (copy_from_user(&gpio_info, (struct gpio_data __user *)arg, sizeof(gpio_info)))
+                return -EFAULT;
+
+            gpio_num = gpio_info.gpio + BASE_GPIOCHIP;
+
+            /*check GPIO if value*/
+            if (!gpio_is_valid(gpio_num))
+                return -EINVAL;
+
+            /*request to use GPIO*/
+            if (gpio_request(gpio_num, DRIVER_NAME))
+                return -EBUSY;
+
+            /*set GPIO direction*/
+            gpio_direction_output(gpio_num, 0);
+
+            /*set GPIO output value*/
+            gpio_set_value(gpio_num, gpio_info.value);
+
+            /*free GPIO*/
+            gpio_free(gpio_num);
+            break;
+
+        default:
+            ret = -EINVAL;
+    }
+
+    return ret;
 }
 
 struct file_operations misc_fops = {
